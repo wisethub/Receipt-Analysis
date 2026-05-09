@@ -1,0 +1,767 @@
+<!doctype html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Receipt Analysis Dashboard</title>
+
+<style>
+  * { box-sizing:border-box; margin:0; padding:0; }
+
+  body{
+    font-family:Inter,system-ui,sans-serif;
+    background:#0d1117;
+    color:#e6edf3;
+    min-height:100vh;
+    padding:20px;
+  }
+
+  .ctrl-bar{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    flex-wrap:wrap;
+    padding:14px 16px;
+    margin-bottom:18px;
+    background:#161b22;
+    border:1px solid #30363d;
+    border-radius:12px;
+  }
+
+  .load-btn,
+  .run-btn,
+  .download-btn{
+    padding:10px 18px;
+    border:none;
+    border-radius:8px;
+    cursor:pointer;
+    font-size:13px;
+    font-weight:700;
+    transition:.2s;
+  }
+
+  .load-btn{
+    background:#238636;
+    color:#fff;
+  }
+
+  .run-btn{
+    background:#1f6feb;
+    color:#fff;
+  }
+
+  .download-btn{
+    background:#8957e5;
+    color:#fff;
+  }
+
+  .load-btn:hover,
+  .run-btn:hover,
+  .download-btn:hover{
+    opacity:.92;
+  }
+
+  .load-btn:disabled,
+  .run-btn:disabled,
+  .download-btn:disabled{
+    opacity:.45;
+    cursor:not-allowed;
+  }
+
+  .prog-wrap{
+    flex:1;
+    min-width:120px;
+    height:5px;
+    background:#30363d;
+    border-radius:3px;
+    overflow:hidden;
+  }
+
+  .prog-bar{
+    height:100%;
+    width:0%;
+    background:#58a6ff;
+    border-radius:3px;
+    transition:width .25s;
+  }
+
+  .status-txt{
+    font-size:12px;
+    color:#8b949e;
+    white-space:nowrap;
+  }
+
+  .err-box{
+    color:#f85149;
+    background:#161b22;
+    border:1px solid #30363d;
+    border-radius:8px;
+    padding:12px 16px;
+    font-size:13px;
+    margin-bottom:16px;
+  }
+
+  .filters{
+    display:grid;
+    grid-template-columns:repeat(auto-fit,minmax(200px,1fr));
+    gap:16px;
+    margin-bottom:20px;
+  }
+
+  .filter-card{
+    background:#161b22;
+    border:1px solid #30363d;
+    border-radius:12px;
+    padding:14px;
+  }
+
+  .filter-card label{
+    display:block;
+    margin-bottom:8px;
+    font-size:12px;
+    color:#8b949e;
+    font-weight:600;
+  }
+
+  .filter-card input,
+  .filter-card select{
+    width:100%;
+    background:#0d1117;
+    border:1px solid #30363d;
+    color:#e6edf3;
+    border-radius:8px;
+    padding:10px;
+    font-size:13px;
+  }
+
+  .dashboard-grid{
+    display:grid;
+    grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
+    gap:16px;
+    margin-bottom:22px;
+  }
+
+  .card{
+    background:#161b22;
+    border:1px solid #30363d;
+    border-radius:14px;
+    padding:18px;
+  }
+
+  .card-title{
+    color:#8b949e;
+    font-size:13px;
+    margin-bottom:10px;
+  }
+
+  .card-value{
+    font-size:28px;
+    font-weight:800;
+    color:#58a6ff;
+  }
+
+  .table-wrap{
+    overflow:auto;
+    background:#161b22;
+    border:1px solid #30363d;
+    border-radius:14px;
+  }
+
+  table{
+    width:100%;
+    border-collapse:collapse;
+    min-width:900px;
+  }
+
+  th{
+    background:#21262d;
+    color:#c9d1d9;
+    text-align:left;
+    padding:14px;
+    font-size:12px;
+    border-bottom:1px solid #30363d;
+    position:sticky;
+    top:0;
+  }
+
+  td{
+    padding:13px 14px;
+    border-bottom:1px solid #30363d;
+    font-size:13px;
+  }
+
+  tr:hover td{
+    background:#1b2230;
+  }
+
+  .badge{
+    display:inline-block;
+    padding:4px 10px;
+    border-radius:999px;
+    background:#1f6feb33;
+    color:#58a6ff;
+    font-size:11px;
+    font-weight:700;
+  }
+
+  .section-title{
+    font-size:18px;
+    font-weight:700;
+    margin-bottom:12px;
+    margin-top:20px;
+  }
+
+  .empty-state{
+    background:#161b22;
+    border:1px dashed #30363d;
+    border-radius:12px;
+    padding:40px;
+    text-align:center;
+    color:#8b949e;
+  }
+
+  .footer-note{
+    margin-top:12px;
+    color:#8b949e;
+    font-size:12px;
+  }
+</style>
+
+</head>
+
+<body>
+
+<div class="ctrl-bar">
+  <button class="load-btn" id="load-btn" onclick="loadAllRecords()">⬇ Load All Records</button>
+  <div class="prog-wrap"><div class="prog-bar" id="prog-bar"></div></div>
+  <span class="status-txt" id="status-txt">Press Load to fetch data from Manager</span>
+</div>
+
+<div id="app"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<script>
+/* ══════════════════════════════════
+   postMessage helper — DO NOT MODIFY
+══════════════════════════════════ */
+function postMessageWithResponse(message) {
+  return new Promise((resolve, reject) => {
+    const requestId = crypto.randomUUID();
+    const timer = setTimeout(() => {
+      window.removeEventListener('message', handler);
+      reject(new Error('Timeout — is this running inside Manager.io?'));
+    }, 15000);
+    function handler(event) {
+      if (event.data?.type?.endsWith('-response') && event.data?.requestId === requestId) {
+        clearTimeout(timer);
+        window.removeEventListener('message', handler);
+        resolve(event.data.body);
+      }
+    }
+    window.addEventListener('message', handler);
+    window.parent.postMessage({ ...message, requestId }, '*');
+  });
+}
+
+/* ══════════════════════════════════
+   Pagination Fetcher
+══════════════════════════════════ */
+async function fetchAllPages(pathBase) {
+  const allItems = [];
+  let nextToken = null;
+  let pageNum = 0;
+
+  do {
+    const path = nextToken
+      ? `${pathBase}?PageSize=99999&next_page_token=${encodeURIComponent(nextToken)}`
+      : `${pathBase}?PageSize=99999`;
+
+    const data = await postMessageWithResponse({
+      type:'api-request',
+      method:'GET',
+      path
+    });
+
+    const page = Array.isArray(data)
+      ? data
+      : (data.items || data.data || []);
+
+    allItems.push(...page);
+
+    nextToken =
+      data.next_page_token ||
+      data.nextPageToken ||
+      data._links?.next?.href ||
+      null;
+
+    pageNum++;
+    if(pageNum >= 1000) break;
+
+  } while(nextToken);
+
+  return allItems;
+}
+
+/* ══════════════════════════════════
+   getJournalEntryBatch
+══════════════════════════════════ */
+async function getJournalEntryBatch(onProgress) {
+  const allItems = [];
+  let nextToken  = null;
+  let pageNum    = 0;
+  let apiTotal   = null;
+
+  do {
+    const path = nextToken
+      ? '/api4/journal-entry-batch?PageSize=99999&next_page_token=' + encodeURIComponent(nextToken)
+      : '/api4/journal-entry-batch?PageSize=99999';
+
+    const data = await postMessageWithResponse({ type: 'api-request', method: 'GET', path });
+
+    const page = Array.isArray(data) ? data : (data.items || data.data || []);
+    allItems.push(...page);
+
+    nextToken = data.next_page_token || data.nextPageToken || data._links?.next?.href || null;
+
+    if (apiTotal === null) {
+      apiTotal = data.totalCount ?? data.total ?? data.count ?? data._metadata?.totalCount ?? null;
+    }
+
+    pageNum++;
+    if (onProgress) onProgress(allItems.length, apiTotal, pageNum);
+    if (pageNum >= 1000) break;
+
+  } while (nextToken);
+
+  return allItems;
+}
+
+/* ══════════════════════════════════
+   Global Storage
+══════════════════════════════════ */
+let RECEIPTS = [];
+let CUSTOMERS = [];
+let CASH_ACCOUNTS = [];
+let JOURNALS = [];
+
+/* ══════════════════════════════════
+   Helpers
+══════════════════════════════════ */
+function formatMoney(value){
+  return '₦' + Number(value || 0).toLocaleString(undefined,{
+    minimumFractionDigits:2,
+    maximumFractionDigits:2
+  });
+}
+
+function formatDate(dateStr){
+  if(!dateStr) return '-';
+  return new Date(dateStr).toLocaleDateString(undefined,{
+    year:'numeric',
+    month:'short',
+    day:'numeric'
+  });
+}
+
+function csvEscape(v){
+  return `"${String(v ?? '').replace(/"/g,'""')}"`;
+}
+
+/* ══════════════════════════════════
+   Main Loader
+══════════════════════════════════ */
+async function loadAllRecords() {
+
+  const btn    = document.getElementById('load-btn');
+  const bar    = document.getElementById('prog-bar');
+  const status = document.getElementById('status-txt');
+  const app    = document.getElementById('app');
+
+  btn.disabled = true;
+  btn.textContent = 'Loading…';
+  bar.style.width = '0%';
+  app.innerHTML = '';
+
+  try {
+
+    JOURNALS = await getJournalEntryBatch((loaded, total, page) => {
+      status.textContent = total
+        ? `Journal Page ${page} · ${loaded.toLocaleString()} / ${total.toLocaleString()}`
+        : `Journal Page ${page} · ${loaded.toLocaleString()} loaded`;
+
+      if (total) {
+        bar.style.width = Math.min(35, Math.round(loaded / total * 35)) + '%';
+      }
+    });
+
+    bar.style.width = '45%';
+    status.textContent = 'Loading receipts...';
+
+    RECEIPTS = await fetchAllPages('/api4/receipt-batch');
+
+    bar.style.width = '65%';
+    status.textContent = 'Loading customers...';
+
+    CUSTOMERS = await fetchAllPages('/api4/customer-batch');
+
+    bar.style.width = '85%';
+    status.textContent = 'Loading payment methods...';
+
+    CASH_ACCOUNTS = await fetchAllPages('/api4/bank-or-cash-account-batch');
+
+    bar.style.width = '100%';
+
+    status.textContent =
+      `✓ Loaded ${RECEIPTS.length.toLocaleString()} receipts`;
+
+    btn.disabled = false;
+    btn.textContent = '↺ Reload';
+
+    render();
+
+  } catch (err) {
+
+    status.textContent = '⚠ ' + err.message;
+    btn.textContent = '↺ Retry';
+    btn.disabled = false;
+
+    app.innerHTML = `
+      <div class="err-box">
+        ⚠ ${err.message}<br><br>
+        Make sure this extension is running inside Manager.io.
+      </div>
+    `;
+  }
+}
+
+/* ══════════════════════════════════
+   Render App
+══════════════════════════════════ */
+function render(){
+
+  const app = document.getElementById('app');
+
+  if(!RECEIPTS.length){
+    app.innerHTML = `
+      <div class="empty-state">
+        No receipt records found.
+      </div>
+    `;
+    return;
+  }
+
+  const officerMap = {};
+
+  RECEIPTS.forEach(r => {
+
+    const receipt = r?.item || {};
+
+    const officer =
+      receipt?.lines?.[0]?.customFields2?.strings
+      ? Object.values(receipt.lines[0].customFields2.strings)[0]
+      : 'Unassigned';
+
+    if(!officerMap[officer]){
+      officerMap[officer] = true;
+    }
+  });
+
+  const officers = Object.keys(officerMap).sort();
+
+  app.innerHTML = `
+    <div class="filters">
+
+      <div class="filter-card">
+        <label>Credit Officer</label>
+        <select id="officer-filter">
+          <option value="">All Credit Officers</option>
+          ${officers.map(o=>`<option>${o}</option>`).join('')}
+        </select>
+      </div>
+
+      <div class="filter-card">
+        <label>Start Date</label>
+        <input type="date" id="start-date">
+      </div>
+
+      <div class="filter-card">
+        <label>End Date</label>
+        <input type="date" id="end-date">
+      </div>
+
+      <div class="filter-card" style="display:flex;align-items:end;gap:10px;">
+        <button class="run-btn" onclick="runAnalysis()">▶ Run Analysis</button>
+        <button class="download-btn" onclick="downloadCSV()">⬇ Download</button>
+      </div>
+
+    </div>
+
+    <div id="analysis-area"></div>
+  `;
+
+  runAnalysis();
+}
+
+/* ══════════════════════════════════
+   Run Analysis
+══════════════════════════════════ */
+function runAnalysis(){
+
+  const officerFilter =
+    document.getElementById('officer-filter')?.value || '';
+
+  const startDate =
+    document.getElementById('start-date')?.value || '';
+
+  const endDate =
+    document.getElementById('end-date')?.value || '';
+
+  let filtered = [...RECEIPTS];
+
+  filtered = filtered.filter(r => {
+
+    const receipt = r?.item || {};
+
+    const officer =
+      receipt?.lines?.[0]?.customFields2?.strings
+      ? Object.values(receipt.lines[0].customFields2.strings)[0]
+      : 'Unassigned';
+
+    const receiptDate = receipt?.date
+      ? new Date(receipt.date)
+      : null;
+
+    if(officerFilter && officer !== officerFilter){
+      return false;
+    }
+
+    if(startDate && receiptDate){
+      if(receiptDate < new Date(startDate)){
+        return false;
+      }
+    }
+
+    if(endDate && receiptDate){
+      const end = new Date(endDate);
+      end.setHours(23,59,59,999);
+
+      if(receiptDate > end){
+        return false;
+      }
+    }
+
+    return true;
+  });
+
+  const customerMap = {};
+  CUSTOMERS.forEach(c=>{
+    customerMap[c?.key] = c?.item?.name || 'Unknown Customer';
+  });
+
+  const accountMap = {};
+  CASH_ACCOUNTS.forEach(a=>{
+    accountMap[a?.key] = a?.item?.name || 'Unknown';
+  });
+
+  const analysis = filtered.map(r=>{
+
+    const receipt = r?.item || {};
+
+    const officer =
+      receipt?.lines?.[0]?.customFields2?.strings
+      ? Object.values(receipt.lines[0].customFields2.strings)[0]
+      : 'Unassigned';
+
+    const total =
+      (receipt?.lines || []).reduce((sum,l)=>{
+        return sum + Number(l?.amount || l?.credit || l?.debit || 0);
+      },0);
+
+    return {
+      date: receipt?.date || '',
+      reference: receipt?.reference || '',
+      customer: customerMap[receipt?.customer] || 'Unknown Customer',
+      officer,
+      paymentMethod: accountMap[receipt?.receivedIn] || 'Unknown',
+      amount: total
+    };
+
+  });
+
+  const totalReceipts = analysis.length;
+
+  const totalValue = analysis.reduce((a,b)=>a+b.amount,0);
+
+  const avgReceipt =
+    totalReceipts
+      ? totalValue / totalReceipts
+      : 0;
+
+  const grouped = {};
+
+  analysis.forEach(r=>{
+    if(!grouped[r.officer]){
+      grouped[r.officer] = {
+        count:0,
+        total:0
+      };
+    }
+
+    grouped[r.officer].count++;
+    grouped[r.officer].total += r.amount;
+  });
+
+  const sortedOfficers =
+    Object.entries(grouped)
+      .sort((a,b)=>b[1].total-a[1].total);
+
+  const analysisArea =
+    document.getElementById('analysis-area');
+
+  analysisArea.innerHTML = `
+
+    <div class="dashboard-grid">
+
+      <div class="card">
+        <div class="card-title">Total Receipts</div>
+        <div class="card-value">${totalReceipts.toLocaleString()}</div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Total Receipt Value</div>
+        <div class="card-value">${formatMoney(totalValue)}</div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Average Receipt</div>
+        <div class="card-value">${formatMoney(avgReceipt)}</div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Credit Officers</div>
+        <div class="card-value">${sortedOfficers.length}</div>
+      </div>
+
+    </div>
+
+    <div class="section-title">Receipt Summary By Credit Officer</div>
+
+    <div class="table-wrap" style="margin-bottom:20px;">
+      <table>
+        <thead>
+          <tr>
+            <th>Credit Officer</th>
+            <th>Total Receipts</th>
+            <th>Total Value</th>
+            <th>Average</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${
+            sortedOfficers.map(([name,data])=>`
+              <tr>
+                <td><span class="badge">${name}</span></td>
+                <td>${data.count.toLocaleString()}</td>
+                <td>${formatMoney(data.total)}</td>
+                <td>${formatMoney(data.count ? data.total/data.count : 0)}</td>
+              </tr>
+            `).join('')
+          }
+        </tbody>
+      </table>
+    </div>
+
+    <div class="section-title">Detailed Receipt Analysis</div>
+
+    <div class="table-wrap">
+      <table id="details-table">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Reference</th>
+            <th>Customer</th>
+            <th>Credit Officer</th>
+            <th>Payment Method</th>
+            <th>Amount</th>
+          </tr>
+        </thead>
+
+        <tbody>
+          ${
+            analysis.map(r=>`
+              <tr>
+                <td>${formatDate(r.date)}</td>
+                <td>${r.reference}</td>
+                <td>${r.customer}</td>
+                <td>${r.officer}</td>
+                <td>${r.paymentMethod}</td>
+                <td>${formatMoney(r.amount)}</td>
+              </tr>
+            `).join('')
+          }
+        </tbody>
+      </table>
+    </div>
+
+    <div class="footer-note">
+      Records analysed: ${analysis.length.toLocaleString()}
+    </div>
+  `;
+
+  window.currentAnalysis = analysis;
+}
+
+/* ══════════════════════════════════
+   Download CSV
+══════════════════════════════════ */
+function downloadCSV(){
+
+  const rows = window.currentAnalysis || [];
+
+  if(!rows.length){
+    alert('No records available.');
+    return;
+  }
+
+  const headers = [
+    'Date',
+    'Reference',
+    'Customer',
+    'Credit Officer',
+    'Payment Method',
+    'Amount'
+  ];
+
+  const csv = [
+    headers.join(','),
+    ...rows.map(r=>[
+      csvEscape(formatDate(r.date)),
+      csvEscape(r.reference),
+      csvEscape(r.customer),
+      csvEscape(r.officer),
+      csvEscape(r.paymentMethod),
+      csvEscape(r.amount)
+    ].join(','))
+  ].join('\n');
+
+  const blob = new Blob([csv],{
+    type:'text/csv;charset=utf-8;'
+  });
+
+  const url = URL.createObjectURL(blob);
+
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = 'receipt-analysis.csv';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+
+  URL.revokeObjectURL(url);
+}
+</script>
+
+</body>
+</html>
