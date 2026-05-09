@@ -509,208 +509,257 @@ function render(){
 ══════════════════════════════════ */
 function runAnalysis(){
 
-  const officerFilter =
-    document.getElementById('officer-filter')?.value || '';
+const officerFilter =
+document.getElementById('officer-filter')?.value || '';
 
-  const startDate =
-    document.getElementById('start-date')?.value || '';
+const startDate =
+document.getElementById('start-date')?.value || '';
 
-  const endDate =
-    document.getElementById('end-date')?.value || '';
+const endDate =
+document.getElementById('end-date')?.value || '';
 
-  let filtered = [...RECEIPTS];
+let filtered = [...RECEIPTS];
 
-  filtered = filtered.filter(r => {
+filtered = filtered.filter(r => {
 
-    const receipt = r?.item || {};
+const receipt = r?.item || {};
 
-    const officer =
-      receipt?.lines?.[0]?.customFields2?.strings
-      ? Object.values(receipt.lines[0].customFields2.strings)[0]
-      : 'Unassigned';
+const officer =
+  receipt?.lines?.[0]?.customFields2?.strings
+  ? Object.values(receipt.lines[0].customFields2.strings)[0]
+  : 'Unassigned';
 
-    const receiptDate = receipt?.date
-      ? new Date(receipt.date)
-      : null;
+const receiptDateStr = receipt?.date
+  ? receipt.date.split('T')[0]
+  : '';
 
-    if(officerFilter && officer !== officerFilter){
-      return false;
-    }
+/* CREDIT OFFICER FILTER */
+if(officerFilter && officer !== officerFilter){
+  return false;
+}
 
-    if(startDate && receiptDate){
-      if(receiptDate < new Date(startDate)){
-        return false;
+/* SINGLE DAY + RANGE FILTER */
+if(startDate && !endDate){
+  if(receiptDateStr !== startDate){
+    return false;
+  }
+}
+
+if(startDate && endDate){
+  if(receiptDateStr < startDate || receiptDateStr > endDate){
+    return false;
+  }
+}
+
+return true;
+
+});
+
+const customerMap = {};
+CUSTOMERS.forEach(c=>{
+customerMap[c?.key] = c?.item?.name || 'Unknown Customer';
+});
+
+const accountMap = {};
+CASH_ACCOUNTS.forEach(a=>{
+accountMap[a?.key] = a?.item?.name || 'Unknown';
+});
+
+const analysis = filtered.map(r=>{
+
+const receipt = r?.item || {};
+
+const officer =
+  receipt?.lines?.[0]?.customFields2?.strings
+  ? Object.values(receipt.lines[0].customFields2.strings)[0]
+  : 'Unassigned';
+
+const total =
+  (receipt?.lines || []).reduce((sum,l)=>{
+    return sum + Number(l?.amount || l?.credit || l?.debit || 0);
+  },0);
+
+return {
+  date: receipt?.date || '',
+  reference: receipt?.reference || '',
+  customer: customerMap[receipt?.customer] || 'Unknown Customer',
+  officer,
+  paymentMethod: accountMap[receipt?.receivedIn] || 'Unknown',
+  amount: total
+};
+
+});
+
+const totalReceipts = analysis.length;
+
+const totalValue = analysis.reduce((a,b)=>a+b.amount,0);
+
+const avgReceipt =
+totalReceipts
+? totalValue / totalReceipts
+: 0;
+
+const grouped = {};
+
+analysis.forEach(r=>{
+
+const officerName = r.officer || 'Unassigned';
+
+if(!grouped[officerName]){
+  grouped[officerName] = {
+    count:0,
+    total:0
+  };
+}
+
+grouped[officerName].count++;
+grouped[officerName].total += r.amount;
+
+});
+
+const sortedOfficers =
+Object.entries(grouped)
+.sort((a,b)=>b[1].total-a[1].total);
+
+const analysisArea =
+document.getElementById('analysis-area');
+
+analysisArea.innerHTML = `
+
+<div class="dashboard-grid">
+
+  <div class="card">
+    <div class="card-title">Total Receipts</div>
+    <div class="card-value">${totalReceipts.toLocaleString()}</div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Total Receipt Value</div>
+    <div class="card-value">${formatMoney(totalValue)}</div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Average Receipt</div>
+    <div class="card-value">${formatMoney(avgReceipt)}</div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Credit Officers</div>
+    <div class="card-value">${sortedOfficers.length}</div>
+  </div>
+
+</div>
+
+<div class="card" style="margin-bottom:20px;">
+  <div class="section-title" style="margin-top:0;">Receipt Value by Credit Officer</div>
+  <canvas id="receiptChart" height="90"></canvas>
+</div>
+
+<div class="section-title">Receipt Summary By Credit Officer</div>
+
+<div class="table-wrap" style="margin-bottom:20px;">
+  <table>
+    <thead>
+      <tr>
+        <th>Credit Officer</th>
+        <th>Total Receipts</th>
+        <th>Total Value</th>
+        <th>Average</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${
+        sortedOfficers.map(([name,data])=>`
+          <tr>
+            <td><span class="badge">${name}</span></td>
+            <td>${data.count.toLocaleString()}</td>
+            <td>${formatMoney(data.total)}</td>
+            <td>${formatMoney(data.count ? data.total/data.count : 0)}</td>
+          </tr>
+        `).join('')
+      }
+    </tbody>
+  </table>
+</div>
+
+<div class="section-title">Detailed Receipt Analysis</div>
+
+<div class="table-wrap">
+  <table id="details-table">
+    <thead>
+      <tr>
+        <th>Date</th>
+        <th>Reference</th>
+        <th>Customer</th>
+        <th>Credit Officer</th>
+        <th>Payment Method</th>
+        <th>Amount</th>
+      </tr>
+    </thead>
+
+    <tbody>
+      ${
+        analysis.map(r=>`
+          <tr>
+            <td>${formatDate(r.date)}</td>
+            <td>${r.reference}</td>
+            <td>${r.customer}</td>
+            <td>${r.officer}</td>
+            <td>${r.paymentMethod}</td>
+            <td>${formatMoney(r.amount)}</td>
+          </tr>
+        `).join('')
+      }
+    </tbody>
+  </table>
+</div>
+
+<div class="footer-note">
+  Records analysed: ${analysis.length.toLocaleString()}
+</div>
+
+`;
+
+window.currentAnalysis = analysis;
+
+/* BAR CHART */
+const ctx = document.getElementById('receiptChart');
+
+if(ctx){
+
+new Chart(ctx, {
+  type:'bar',
+  data:{
+    labels: sortedOfficers.map(x => x[0]),
+    datasets:[{
+      label:'Receipt Value',
+      data: sortedOfficers.map(x => x[1].total),
+      backgroundColor:'#58a6ff'
+    }]
+  },
+  options:{
+    responsive:true,
+    plugins:{
+      legend:{
+        labels:{
+          color:'#e6edf3'
+        }
+      }
+    },
+    scales:{
+      x:{
+        ticks:{ color:'#e6edf3' },
+        grid:{ color:'#30363d' }
+      },
+      y:{
+        ticks:{ color:'#e6edf3' },
+        grid:{ color:'#30363d' }
       }
     }
+  }
+});
 
-    if(endDate && receiptDate){
-      const end = new Date(endDate);
-      end.setHours(23,59,59,999);
-
-      if(receiptDate > end){
-        return false;
-      }
-    }
-
-    return true;
-  });
-
-  const customerMap = {};
-  CUSTOMERS.forEach(c=>{
-    customerMap[c?.key] = c?.item?.name || 'Unknown Customer';
-  });
-
-  const accountMap = {};
-  CASH_ACCOUNTS.forEach(a=>{
-    accountMap[a?.key] = a?.item?.name || 'Unknown';
-  });
-
-  const analysis = filtered.map(r=>{
-
-    const receipt = r?.item || {};
-
-    const officer =
-      receipt?.lines?.[0]?.customFields2?.strings
-      ? Object.values(receipt.lines[0].customFields2.strings)[0]
-      : 'Unassigned';
-
-    const total =
-      (receipt?.lines || []).reduce((sum,l)=>{
-        return sum + Number(l?.amount || l?.credit || l?.debit || 0);
-      },0);
-
-    return {
-      date: receipt?.date || '',
-      reference: receipt?.reference || '',
-      customer: customerMap[receipt?.customer] || 'Unknown Customer',
-      officer,
-      paymentMethod: accountMap[receipt?.receivedIn] || 'Unknown',
-      amount: total
-    };
-
-  });
-
-  const totalReceipts = analysis.length;
-
-  const totalValue = analysis.reduce((a,b)=>a+b.amount,0);
-
-  const avgReceipt =
-    totalReceipts
-      ? totalValue / totalReceipts
-      : 0;
-
-  const grouped = {};
-
-  analysis.forEach(r=>{
-    if(!grouped[r.officer]){
-      grouped[r.officer] = {
-        count:0,
-        total:0
-      };
-    }
-
-    grouped[r.officer].count++;
-    grouped[r.officer].total += r.amount;
-  });
-
-  const sortedOfficers =
-    Object.entries(grouped)
-      .sort((a,b)=>b[1].total-a[1].total);
-
-  const analysisArea =
-    document.getElementById('analysis-area');
-
-  analysisArea.innerHTML = `
-
-    <div class="dashboard-grid">
-
-      <div class="card">
-        <div class="card-title">Total Receipts</div>
-        <div class="card-value">${totalReceipts.toLocaleString()}</div>
-      </div>
-
-      <div class="card">
-        <div class="card-title">Total Receipt Value</div>
-        <div class="card-value">${formatMoney(totalValue)}</div>
-      </div>
-
-      <div class="card">
-        <div class="card-title">Average Receipt</div>
-        <div class="card-value">${formatMoney(avgReceipt)}</div>
-      </div>
-
-      <div class="card">
-        <div class="card-title">Credit Officers</div>
-        <div class="card-value">${sortedOfficers.length}</div>
-      </div>
-
-    </div>
-
-    <div class="section-title">Receipt Summary By Credit Officer</div>
-
-    <div class="table-wrap" style="margin-bottom:20px;">
-      <table>
-        <thead>
-          <tr>
-            <th>Credit Officer</th>
-            <th>Total Receipts</th>
-            <th>Total Value</th>
-            <th>Average</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${
-            sortedOfficers.map(([name,data])=>`
-              <tr>
-                <td><span class="badge">${name}</span></td>
-                <td>${data.count.toLocaleString()}</td>
-                <td>${formatMoney(data.total)}</td>
-                <td>${formatMoney(data.count ? data.total/data.count : 0)}</td>
-              </tr>
-            `).join('')
-          }
-        </tbody>
-      </table>
-    </div>
-
-    <div class="section-title">Detailed Receipt Analysis</div>
-
-    <div class="table-wrap">
-      <table id="details-table">
-        <thead>
-          <tr>
-            <th>Date</th>
-            <th>Reference</th>
-            <th>Customer</th>
-            <th>Credit Officer</th>
-            <th>Payment Method</th>
-            <th>Amount</th>
-          </tr>
-        </thead>
-
-        <tbody>
-          ${
-            analysis.map(r=>`
-              <tr>
-                <td>${formatDate(r.date)}</td>
-                <td>${r.reference}</td>
-                <td>${r.customer}</td>
-                <td>${r.officer}</td>
-                <td>${r.paymentMethod}</td>
-                <td>${formatMoney(r.amount)}</td>
-              </tr>
-            `).join('')
-          }
-        </tbody>
-      </table>
-    </div>
-
-    <div class="footer-note">
-      Records analysed: ${analysis.length.toLocaleString()}
-    </div>
-  `;
-
-  window.currentAnalysis = analysis;
+}
 }
 
 /* ══════════════════════════════════
